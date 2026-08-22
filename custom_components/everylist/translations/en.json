@@ -1,0 +1,40 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to EveryList",
+        "description": "Enter your EveryList server's base URL, a Personal Access Token minted from Settings → Access Tokens, and the list ID(s) it was scoped to (comma-separated, e.g. 3,5).",
+        "data": {
+          "url": "Base URL",
+          "access_token": "Personal Access Token",
+          "list_ids_csv": "List IDs"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate EveryList",
+        "description": "The configured token no longer works. Mint a new Personal Access Token scoped to the same list(s) and enter it below.",
+        "data": {
+          "access_token": "Personal Access Token"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure EveryList",
+        "description": "Change which list IDs this entry exposes (comma-separated). The token must already be scoped to every list you list here.",
+        "data": {
+          "list_ids_csv": "List IDs"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the EveryList server at that URL.",
+      "invalid_auth_or_scope": "The token was rejected, or isn't scoped to one of those list IDs.",
+      "invalid_list_ids_format": "List IDs must be a comma-separated list of numbers, e.g. 3,5.",
+      "no_list_ids": "Enter at least one list ID."
+    },
+    "abort": {
+      "already_configured": "This EveryList server is already configured.",
+      "reauth_successful": "Re-authentication was successful.",
+      "reconfigure_successful": "Reconfiguration was successful."
+    }
+  }
+}
