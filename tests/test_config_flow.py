@@ -11,10 +11,11 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.everylist.const import CONF_LIST_IDS, DOMAIN
 
-from .conftest import BASE_URL, LIST_ID, LIST_NAME, TOKEN, list_json
+from .conftest import BASE_URL, LIST_ID, LIST_NAME, TOKEN, list_json, token_me_json
 from .fake_aiohttp import FakeSession
 
 LIST_URL = f"{BASE_URL}/api/v1/lists/{LIST_ID}"
+TOKEN_ME_URL = f"{BASE_URL}/api/v1/tokens/me"
 
 
 @pytest.fixture(autouse=True)
@@ -34,28 +35,43 @@ async def _start_user_flow(hass: HomeAssistant) -> dict:
     )
 
 
+async def _configure(hass: HomeAssistant, flow_id: str, access_token: str = TOKEN) -> dict:
+    return await hass.config_entries.flow.async_configure(
+        flow_id, {"url": BASE_URL, "access_token": access_token}
+    )
+
+
 async def test_user_flow_success(hass: HomeAssistant, session: FakeSession) -> None:
     result = await _start_user_flow(hass)
     assert result["type"] is FlowResultType.FORM
 
+    session.add_response("GET", TOKEN_ME_URL, json_body={"data": token_me_json()})
     session.add_response("GET", LIST_URL, json_body={"data": list_json()})
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"url": BASE_URL, "access_token": TOKEN, "list_ids_csv": str(LIST_ID)},
-    )
+    result = await _configure(hass, result["flow_id"])
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == f"EveryList ({LIST_NAME})"
     assert result["data"] == {
         "url": BASE_URL,
         "access_token": TOKEN,
-        CONF_LIST_IDS: {str(LIST_ID): LIST_NAME},
+        CONF_LIST_IDS: {str(LIST_ID): {"name": LIST_NAME, "role": "editor"}},
     }
 
 
-async def test_user_flow_multiple_lists(hass: HomeAssistant, session: FakeSession) -> None:
+async def test_user_flow_multiple_lists_with_mixed_roles(
+    hass: HomeAssistant, session: FakeSession
+) -> None:
     result = await _start_user_flow(hass)
 
+    session.add_response(
+        "GET",
+        TOKEN_ME_URL,
+        json_body={
+            "data": token_me_json(
+                grants=[{"listId": LIST_ID, "role": "editor"}, {"listId": 5, "role": "viewer"}]
+            )
+        },
+    )
     session.add_response(
         "GET", LIST_URL, json_body={"data": list_json(list_id=LIST_ID, name="Groceries")}
     )
@@ -64,60 +80,56 @@ async def test_user_flow_multiple_lists(hass: HomeAssistant, session: FakeSessio
         f"{BASE_URL}/api/v1/lists/5",
         json_body={"data": list_json(list_id=5, name="Hardware")},
     )
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"url": BASE_URL, "access_token": TOKEN, "list_ids_csv": f"{LIST_ID}, 5"},
-    )
+    result = await _configure(hass, result["flow_id"])
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["data"][CONF_LIST_IDS] == {str(LIST_ID): "Groceries", "5": "Hardware"}
+    assert result["data"][CONF_LIST_IDS] == {
+        str(LIST_ID): {"name": "Groceries", "role": "editor"},
+        "5": {"name": "Hardware", "role": "viewer"},
+    }
 
 
 async def test_user_flow_cannot_connect(hass: HomeAssistant, session: FakeSession) -> None:
     result = await _start_user_flow(hass)
 
-    session.add_exception("GET", LIST_URL, aiohttp.ClientConnectionError("boom"))
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"url": BASE_URL, "access_token": TOKEN, "list_ids_csv": str(LIST_ID)},
-    )
+    session.add_exception("GET", TOKEN_ME_URL, aiohttp.ClientConnectionError("boom"))
+    result = await _configure(hass, result["flow_id"])
 
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "cannot_connect"}
 
 
-async def test_user_flow_invalid_auth_or_scope(hass: HomeAssistant, session: FakeSession) -> None:
+async def test_user_flow_invalid_auth_on_bad_token(
+    hass: HomeAssistant, session: FakeSession
+) -> None:
     result = await _start_user_flow(hass)
 
+    session.add_response("GET", TOKEN_ME_URL, status=401)
+    result = await _configure(hass, result["flow_id"])
+
+    assert result["errors"] == {"base": "invalid_auth"}
+
+
+async def test_user_flow_invalid_auth_when_a_granted_list_is_gone(
+    hass: HomeAssistant, session: FakeSession
+) -> None:
+    """The token itself is valid, but a list it's scoped to has since been deleted."""
+    result = await _start_user_flow(hass)
+
+    session.add_response("GET", TOKEN_ME_URL, json_body={"data": token_me_json()})
     session.add_response("GET", LIST_URL, status=404)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"url": BASE_URL, "access_token": TOKEN, "list_ids_csv": str(LIST_ID)},
-    )
+    result = await _configure(hass, result["flow_id"])
 
-    assert result["errors"] == {"base": "invalid_auth_or_scope"}
+    assert result["errors"] == {"base": "invalid_auth"}
 
 
-async def test_user_flow_invalid_list_ids_format(hass: HomeAssistant) -> None:
+async def test_user_flow_no_lists_granted(hass: HomeAssistant, session: FakeSession) -> None:
     result = await _start_user_flow(hass)
 
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"url": BASE_URL, "access_token": TOKEN, "list_ids_csv": "not-a-number"},
-    )
+    session.add_response("GET", TOKEN_ME_URL, json_body={"data": token_me_json(grants=[])})
+    result = await _configure(hass, result["flow_id"])
 
-    assert result["errors"] == {"base": "invalid_list_ids_format"}
-
-
-async def test_user_flow_no_list_ids(hass: HomeAssistant) -> None:
-    result = await _start_user_flow(hass)
-
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"url": BASE_URL, "access_token": TOKEN, "list_ids_csv": "  , "},
-    )
-
-    assert result["errors"] == {"base": "no_list_ids"}
+    assert result["errors"] == {"base": "no_lists_granted"}
 
 
 async def test_user_flow_aborts_on_duplicate_base_url(
@@ -126,22 +138,24 @@ async def test_user_flow_aborts_on_duplicate_base_url(
     existing = MockConfigEntry(
         domain=DOMAIN,
         unique_id=BASE_URL,
-        data={"url": BASE_URL, "access_token": TOKEN, CONF_LIST_IDS: {str(LIST_ID): LIST_NAME}},
+        data={
+            "url": BASE_URL,
+            "access_token": TOKEN,
+            CONF_LIST_IDS: {str(LIST_ID): {"name": LIST_NAME, "role": "editor"}},
+        },
     )
     existing.add_to_hass(hass)
 
     result = await _start_user_flow(hass)
+    session.add_response("GET", TOKEN_ME_URL, json_body={"data": token_me_json()})
     session.add_response("GET", LIST_URL, json_body={"data": list_json()})
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"url": BASE_URL, "access_token": TOKEN, "list_ids_csv": str(LIST_ID)},
-    )
+    result = await _configure(hass, result["flow_id"])
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
 
 
-async def test_reauth_flow_success_updates_token(
+async def test_reauth_flow_success_updates_token_and_rediscovers_lists(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry, session: FakeSession
 ) -> None:
     mock_config_entry.add_to_hass(hass)
@@ -150,7 +164,16 @@ async def test_reauth_flow_success_updates_token(
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "reauth_confirm"
 
-    session.add_response("GET", LIST_URL, json_body={"data": list_json()})
+    session.add_response(
+        "GET",
+        TOKEN_ME_URL,
+        json_body={"data": token_me_json(grants=[{"listId": 5, "role": "viewer"}])},
+    )
+    session.add_response(
+        "GET",
+        f"{BASE_URL}/api/v1/lists/5",
+        json_body={"data": list_json(list_id=5, name="Hardware")},
+    )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"access_token": "elt_new_token"}
     )
@@ -158,6 +181,7 @@ async def test_reauth_flow_success_updates_token(
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
     assert mock_config_entry.data["access_token"] == "elt_new_token"
+    assert mock_config_entry.data[CONF_LIST_IDS] == {"5": {"name": "Hardware", "role": "viewer"}}
 
 
 async def test_reauth_flow_error_keeps_form_open(
@@ -166,46 +190,10 @@ async def test_reauth_flow_error_keeps_form_open(
     mock_config_entry.add_to_hass(hass)
     result = await mock_config_entry.start_reauth_flow(hass)
 
-    session.add_response("GET", LIST_URL, status=401)
+    session.add_response("GET", TOKEN_ME_URL, status=401)
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"access_token": "elt_bad_token"}
     )
 
     assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {"base": "invalid_auth_or_scope"}
-
-
-async def test_reconfigure_flow_success_updates_lists(
-    hass: HomeAssistant, mock_config_entry: MockConfigEntry, session: FakeSession
-) -> None:
-    mock_config_entry.add_to_hass(hass)
-
-    result = await mock_config_entry.start_reconfigure_flow(hass)
-    assert result["step_id"] == "reconfigure"
-
-    session.add_response(
-        "GET",
-        f"{BASE_URL}/api/v1/lists/5",
-        json_body={"data": list_json(list_id=5, name="Hardware")},
-    )
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"list_ids_csv": "5"}
-    )
-
-    assert result["type"] is FlowResultType.ABORT
-    assert result["reason"] == "reconfigure_successful"
-    assert mock_config_entry.data[CONF_LIST_IDS] == {"5": "Hardware"}
-
-
-async def test_reconfigure_flow_error_keeps_form_open(
-    hass: HomeAssistant, mock_config_entry: MockConfigEntry
-) -> None:
-    mock_config_entry.add_to_hass(hass)
-    result = await mock_config_entry.start_reconfigure_flow(hass)
-
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"list_ids_csv": "not-a-number"}
-    )
-
-    assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {"base": "invalid_list_ids_format"}
+    assert result["errors"] == {"base": "invalid_auth"}

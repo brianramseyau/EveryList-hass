@@ -26,6 +26,13 @@ from .coordinator import EveryListCoordinator
 _FUZZY_MATCH_CUTOFF = 0.8
 
 
+_WRITE_FEATURES = (
+    TodoListEntityFeature.CREATE_TODO_ITEM
+    | TodoListEntityFeature.UPDATE_TODO_ITEM
+    | TodoListEntityFeature.DELETE_TODO_ITEM
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: EveryListConfigEntry,
@@ -33,23 +40,25 @@ async def async_setup_entry(
 ) -> None:
     """Set up one TodoListEntity per list the config entry covers."""
     coordinator = entry.runtime_data.coordinator
-    list_names: dict[str, str] = entry.data[CONF_LIST_IDS]
+    lists: dict[str, dict[str, str]] = entry.data[CONF_LIST_IDS]
 
     async_add_entities(
-        EveryListTodoListEntity(coordinator, entry, list_id=int(list_id), name=name)
-        for list_id, name in list_names.items()
+        EveryListTodoListEntity(
+            coordinator, entry, list_id=int(list_id), name=info["name"], role=info["role"]
+        )
+        for list_id, info in lists.items()
     )
 
 
 class EveryListTodoListEntity(CoordinatorEntity[EveryListCoordinator], TodoListEntity):
-    """A single EveryList list, exposed as a HA todo list."""
+    """A single EveryList list, exposed as a HA todo list.
+
+    A ``viewer``-scoped PAT grant gets a read-only entity — the API itself
+    would 403 a write from such a token, so ``supported_features`` reflects
+    that up front rather than letting the user hit a failed service call.
+    """
 
     _attr_has_entity_name = True
-    _attr_supported_features = (
-        TodoListEntityFeature.CREATE_TODO_ITEM
-        | TodoListEntityFeature.UPDATE_TODO_ITEM
-        | TodoListEntityFeature.DELETE_TODO_ITEM
-    )
 
     def __init__(
         self,
@@ -58,11 +67,15 @@ class EveryListTodoListEntity(CoordinatorEntity[EveryListCoordinator], TodoListE
         *,
         list_id: int,
         name: str,
+        role: str,
     ) -> None:
         super().__init__(coordinator)
         self._list_id = list_id
         self._attr_name = name
         self._attr_unique_id = f"{entry.entry_id}-{list_id}"
+        self._attr_supported_features = (
+            _WRITE_FEATURES if role == "editor" else TodoListEntityFeature(0)
+        )
 
     @property
     def todo_items(self) -> list[TodoItem]:

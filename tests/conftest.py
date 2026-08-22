@@ -78,6 +78,18 @@ def list_json(*, list_id: int = LIST_ID, name: str = LIST_NAME) -> dict:
     }
 
 
+def token_me_json(*, grants: list[dict] | None = None) -> dict:
+    """Build a ``GET /tokens/me`` payload shaped like the real API's response."""
+    return {
+        "id": 1,
+        "name": "Home Assistant",
+        "grants": grants if grants is not None else [{"listId": LIST_ID, "role": "editor"}],
+        "lastUsedAt": None,
+        "expiresAt": None,
+        "createdAt": "2026-01-01T00:00:00.000+00:00",
+    }
+
+
 @pytest.fixture
 def mock_config_entry() -> MockConfigEntry:
     return MockConfigEntry(
@@ -87,6 +99,6 @@ def mock_config_entry() -> MockConfigEntry:
         data={
             "url": BASE_URL,
             "access_token": TOKEN,
-            CONF_LIST_IDS: {str(LIST_ID): LIST_NAME},
+            CONF_LIST_IDS: {str(LIST_ID): {"name": LIST_NAME, "role": "editor"}},
         },
     )

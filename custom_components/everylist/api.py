@@ -79,6 +79,18 @@ class EveryListList:
         return cls(id=data["id"], name=data["name"])
 
 
+@dataclass(slots=True, kw_only=True)
+class EveryListGrant:
+    """One list a PAT is scoped to, as reported by ``GET /tokens/me``."""
+
+    list_id: int
+    role: str
+
+    @classmethod
+    def from_json(cls, data: dict[str, Any]) -> EveryListGrant:
+        return cls(list_id=data["listId"], role=data["role"])
+
+
 class EveryListClient:
     """Minimal async wrapper around the EveryList REST API used by this integration."""
 
@@ -118,6 +130,11 @@ class EveryListClient:
         """Fetch a list's identity — also the config-flow validation call for scope+reachability."""
         body = await self._get(f"/lists/{list_id}")
         return EveryListList.from_json(body["data"])
+
+    async def get_my_grants(self) -> list[EveryListGrant]:
+        """The authenticating PAT's own list grants — the config-flow list-discovery call."""
+        body = await self._get("/tokens/me")
+        return [EveryListGrant.from_json(grant) for grant in body["data"]["grants"]]
 
     async def get_items(self, list_id: int, *, include_checked: bool = True) -> list[EveryListItem]:
         params = {"includeChecked": "true" if include_checked else "false"}
