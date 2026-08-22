@@ -30,6 +30,8 @@ _WRITE_FEATURES = (
     TodoListEntityFeature.CREATE_TODO_ITEM
     | TodoListEntityFeature.UPDATE_TODO_ITEM
     | TodoListEntityFeature.DELETE_TODO_ITEM
+    | TodoListEntityFeature.MOVE_TODO_ITEM
+    | TodoListEntityFeature.SET_DESCRIPTION_ON_ITEM
 )
 
 
@@ -118,7 +120,10 @@ class EveryListTodoListEntity(CoordinatorEntity[EveryListCoordinator], TodoListE
             fields["name"] = item.summary
         if item.status is not None:
             fields["checked"] = item.status == TodoItemStatus.COMPLETED
+        if item.description != current.notes:
+            fields["notes"] = item.description
         await self._update_with_retry(current, fields)
+        await self.coordinator.async_request_refresh()
 
     async def _update_with_retry(self, item: EveryListItem, fields: dict[str, object]) -> None:
         """Apply an update, refetching and retrying once on a stale-version conflict."""
@@ -130,6 +135,36 @@ class EveryListTodoListEntity(CoordinatorEntity[EveryListCoordinator], TodoListE
             await self.coordinator.client.update_item(
                 self._list_id, item.id, expected_version=err.item.version, **fields
             )
+
+    async def async_move_todo_item(self, uid: str, previous_uid: str | None = None) -> None:
+        """Reorder ``uid`` to sit right after ``previous_uid`` (or first, if ``None``).
+
+        EveryList has no bulk-reorder endpoint for items — only a per-item
+        ``sortOrder`` on the same ``PATCH`` used for renames/checks — so a
+        move is applied by recomputing the whole list's 0..N-1 order and
+        writing back only the items whose position actually changed.
+        """
+        items = list(self.coordinator.data.get(self._list_id, []))
+        ordered_ids = [item.id for item in items]
+        moved_id = int(uid)
+        if moved_id not in ordered_ids:
+            raise ValueError(f"No item {uid} on list {self._list_id}")
+        ordered_ids.remove(moved_id)
+
+        if previous_uid is None:
+            new_index = 0
+        else:
+            prev_id = int(previous_uid)
+            if prev_id not in ordered_ids:
+                raise ValueError(f"No item {previous_uid} on list {self._list_id}")
+            new_index = ordered_ids.index(prev_id) + 1
+        ordered_ids.insert(new_index, moved_id)
+
+        by_id = {item.id: item for item in items}
+        for sort_order, item_id in enumerate(ordered_ids):
+            item = by_id[item_id]
+            if item.sort_order != sort_order:
+                await self._update_with_retry(item, {"sortOrder": sort_order})
         await self.coordinator.async_request_refresh()
 
     async def async_delete_todo_items(self, uids: list[str]) -> None:

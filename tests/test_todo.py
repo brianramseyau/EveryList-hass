@@ -82,6 +82,8 @@ async def test_editor_role_gets_write_features(make_entity: EntityFactory) -> No
         TodoListEntityFeature.CREATE_TODO_ITEM
         | TodoListEntityFeature.UPDATE_TODO_ITEM
         | TodoListEntityFeature.DELETE_TODO_ITEM
+        | TodoListEntityFeature.MOVE_TODO_ITEM
+        | TodoListEntityFeature.SET_DESCRIPTION_ON_ITEM
     )
 
 
@@ -177,6 +179,61 @@ async def test_update_todo_item_rename_only_omits_checked_field(
     client.update_item.assert_awaited_once_with(LIST_ID, 1, expected_version=1, name="Whole milk")
 
 
+async def test_update_todo_item_sets_description(make_entity: EntityFactory) -> None:
+    client = AsyncMock()
+    client.update_item.return_value = _milk(notes="brand: oat milk")
+    client.get_items.return_value = [_milk(notes="brand: oat milk")]
+    entity = make_entity(client, [_milk()])
+
+    await entity.async_update_todo_item(
+        TodoItem(
+            uid="1",
+            summary="Milk",
+            status=TodoItemStatus.NEEDS_ACTION,
+            description="brand: oat milk",
+        )
+    )
+
+    client.update_item.assert_awaited_once_with(
+        LIST_ID, 1, expected_version=1, checked=False, notes="brand: oat milk"
+    )
+
+
+async def test_update_todo_item_clears_description(make_entity: EntityFactory) -> None:
+    client = AsyncMock()
+    client.update_item.return_value = _milk()
+    client.get_items.return_value = [_milk()]
+    entity = make_entity(client, [_milk(notes="brand: oat milk")])
+
+    await entity.async_update_todo_item(
+        TodoItem(uid="1", summary="Milk", status=TodoItemStatus.NEEDS_ACTION, description=None)
+    )
+
+    client.update_item.assert_awaited_once_with(
+        LIST_ID, 1, expected_version=1, checked=False, notes=None
+    )
+
+
+async def test_update_todo_item_unchanged_description_omits_notes_field(
+    make_entity: EntityFactory,
+) -> None:
+    client = AsyncMock()
+    client.update_item.return_value = _milk(notes="brand: oat milk")
+    client.get_items.return_value = [_milk(notes="brand: oat milk")]
+    entity = make_entity(client, [_milk(notes="brand: oat milk")])
+
+    await entity.async_update_todo_item(
+        TodoItem(
+            uid="1",
+            summary="Milk",
+            status=TodoItemStatus.NEEDS_ACTION,
+            description="brand: oat milk",
+        )
+    )
+
+    client.update_item.assert_awaited_once_with(LIST_ID, 1, expected_version=1, checked=False)
+
+
 async def test_update_todo_item_retries_once_on_conflict(make_entity: EntityFactory) -> None:
     client = AsyncMock()
     client.update_item.side_effect = [
@@ -217,6 +274,76 @@ async def test_delete_todo_items_retries_once_on_conflict(make_entity: EntityFac
     assert client.delete_item.await_count == 2
     second_call = client.delete_item.await_args_list[1]
     assert second_call.kwargs["expected_version"] == 9
+
+
+async def test_move_todo_item_to_front(make_entity: EntityFactory) -> None:
+    client = AsyncMock()
+    item1 = _milk(item_id=1, name="Milk", sort_order=0)
+    item2 = _milk(item_id=2, name="Eggs", sort_order=1)
+    client.get_items.return_value = [item2, item1]
+    entity = make_entity(client, [item1, item2])
+
+    await entity.async_move_todo_item(uid="2", previous_uid=None)
+
+    client.update_item.assert_any_await(LIST_ID, 2, expected_version=1, sortOrder=0)
+    client.update_item.assert_any_await(LIST_ID, 1, expected_version=1, sortOrder=1)
+    assert client.update_item.await_count == 2
+
+
+async def test_move_todo_item_reorders_and_skips_unchanged(make_entity: EntityFactory) -> None:
+    client = AsyncMock()
+    item1 = _milk(item_id=1, name="Milk", sort_order=0)
+    item2 = _milk(item_id=2, name="Eggs", sort_order=1)
+    item3 = _milk(item_id=3, name="Bread", sort_order=2)
+    client.get_items.return_value = [item2, item1, item3]
+    entity = make_entity(client, [item1, item2, item3])
+
+    await entity.async_move_todo_item(uid="1", previous_uid="2")
+
+    # New order is [Eggs, Milk, Bread] -> sortOrder 0, 1, 2. Bread (already
+    # at index 2) is unchanged and gets no PATCH.
+    client.update_item.assert_any_await(LIST_ID, 2, expected_version=1, sortOrder=0)
+    client.update_item.assert_any_await(LIST_ID, 1, expected_version=1, sortOrder=1)
+    assert client.update_item.await_count == 2
+
+
+async def test_move_todo_item_unknown_uid_raises(make_entity: EntityFactory) -> None:
+    entity = make_entity(AsyncMock(), [_milk()])
+
+    with pytest.raises(ValueError, match="No item 999"):
+        await entity.async_move_todo_item(uid="999")
+
+
+async def test_move_todo_item_unknown_previous_uid_raises(make_entity: EntityFactory) -> None:
+    entity = make_entity(AsyncMock(), [_milk()])
+
+    with pytest.raises(ValueError, match="No item 999"):
+        await entity.async_move_todo_item(uid="1", previous_uid="999")
+
+
+async def test_move_todo_item_retries_once_on_conflict(make_entity: EntityFactory) -> None:
+    client = AsyncMock()
+    item_a = _milk(item_id=1, name="A", sort_order=0)
+    item_b = _milk(item_id=2, name="B", sort_order=1)
+    item_c = _milk(item_id=3, name="C", sort_order=2)
+    client.update_item.side_effect = [
+        EveryListConflictError(_milk(item_id=3, name="C", version=9)),
+        None,
+        None,
+    ]
+    client.get_items.return_value = [item_a, item_c, item_b]
+    entity = make_entity(client, [item_a, item_b, item_c])
+
+    # Move C to right after A -> [A, C, B]. A keeps sortOrder 0 (no PATCH);
+    # C and B both change, and C's first attempt hits a stale version.
+    await entity.async_move_todo_item(uid="3", previous_uid="1")
+
+    assert client.update_item.await_count == 3
+    first_call, retry_call, _ = client.update_item.await_args_list
+    assert first_call.args[1] == 3
+    assert first_call.kwargs == {"expected_version": 1, "sortOrder": 1}
+    assert retry_call.args[1] == 3
+    assert retry_call.kwargs == {"expected_version": 9, "sortOrder": 1}
 
 
 async def test_async_setup_entry_creates_one_entity_per_list(hass: HomeAssistant) -> None:

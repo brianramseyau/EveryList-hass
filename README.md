@@ -27,8 +27,10 @@ custom sentences or intent scripts required.
 - **Reads** your list's items (`todo.groceries` shows exactly what's on the EveryList list).
 - **Adds** items via Voice Assist or the Lovelace to-do card, fuzzy-matching near-miss
   transcriptions ("miilk") against the list's recent item names before creating anything new.
-- **Completes / renames / deletes** items, both ways — items added from the EveryList app or by
-  another household member show up here too (on the next poll; see [Limitations](#limitations)).
+- **Completes / renames / deletes / reorders** items, both ways — items added from the EveryList
+  app or by another household member show up here too (on the next poll; see
+  [Limitations](#limitations)).
+- **Notes** on an item round-trip as the to-do item's description — editable from either side.
 
 See [`foundational/PLAN.md`](foundational/PLAN.md) for the full design — API contract, the
 optimistic-locking/conflict-retry behavior, and the reasoning behind each decision below.

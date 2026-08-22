@@ -53,6 +53,7 @@ class EveryListItem:
     name: str
     checked: bool
     version: int
+    sort_order: int
     notes: str | None = None
 
     @classmethod
@@ -63,6 +64,7 @@ class EveryListItem:
             name=data["name"],
             checked=data["checked"],
             version=data["version"],
+            sort_order=data["sortOrder"],
             notes=data.get("notes"),
         )
 

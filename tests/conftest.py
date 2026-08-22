@@ -33,6 +33,7 @@ def item_json(
     checked: bool = False,
     version: int = 1,
     notes: str | None = None,
+    sort_order: int = 0,
 ) -> dict:
     """Build an item payload shaped like the real API's ItemTransformer output."""
     return {
@@ -46,7 +47,7 @@ def item_json(
         "price": None,
         "checked": checked,
         "checkedAt": None,
-        "sortOrder": 0,
+        "sortOrder": sort_order,
         "createdBy": 1,
         "createdAt": "2026-01-01T00:00:00.000+00:00",
         "updatedAt": "2026-01-01T00:00:00.000+00:00",
