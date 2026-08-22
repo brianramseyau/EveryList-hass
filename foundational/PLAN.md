@@ -41,7 +41,7 @@ and "mark milk as done" work the moment the entity exists.
 custom_components/everylist/
   __init__.py       entry setup/unload, coordinator wiring
   manifest.json      domain "everylist"
-  config_flow.py     prompts for base URL + PAT + list ID(s), validates with a real API call
+  config_flow.py     prompts for base URL + PAT, discovers its list grants via a real API call
   coordinator.py      DataUpdateCoordinator: poll + push-driven refresh
   todo.py             TodoListEntity implementation (one entity per configured list)
   api.py               thin aiohttp client
@@ -58,9 +58,16 @@ exist.
 
 ### API surface used (all under `{base_url}/api/v1`, `Authorization: Bearer <PAT>`)
 
-- `GET /lists/:listId` — validates the token's scope for that list during config flow and
-  supplies the list's real name/color for the entity; a PAT unscoped to the list 404s here,
-  which the config flow surfaces as a form error rather than a generic failure.
+- `GET /tokens/me` (PAT-only guard — a login session has no per-list grant to report) — the
+  config-flow list-discovery call, added specifically for this integration (main repo commit
+  `03fa702`, found missing while building this exact flow — see git history there). Returns the
+  authenticating token's own `{listId, role}` grants, so the user never re-enters list IDs by
+  hand; `role` also drives whether the resulting entity is writable (`editor`) or read-only
+  (`viewer`).
+- `GET /lists/:listId` — called once per discovered grant to get the list's real name/color for
+  the entity, and doubles as a scope re-check; a PAT unscoped to the list 404s here (shouldn't
+  happen right after `/tokens/me` reported the grant, except a list deleted in between), surfaced
+  as a form error rather than a generic failure.
 - `GET /lists/:listId/items?includeChecked=true` → `async_get_todo_items`.
 - `POST /lists/:listId/items` (`{name, ...}`) → `async_create_todo_item`, fuzzy-matched first
   against `GET /lists/:listId/items/recent-names` (`difflib.get_close_matches`, stdlib, no new
@@ -90,12 +97,13 @@ update the entity immediately without waiting on a poll.
 
 ### Auth and reauth
 
-Config flow asks for base URL + PAT (+ the list ID(s) the PAT was scoped to at mint time — the
-API has no "introspect my own grants" endpoint, so the user supplies the same IDs they picked
-when minting the token in `Settings → Access Tokens`). A 401 (revoked/expired token) or a 404
-on a previously-working list (scope revoked) during a coordinator update raises
-`ConfigEntryAuthFailed`, triggering HA's reauth flow rather than leaving the entity silently
-broken.
+Config flow asks for base URL + PAT only; the list set is discovered from the token itself (see
+above) rather than typed in. A 401 (revoked/expired token) or a 404 on a previously-working list
+(scope revoked) during a coordinator update raises `ConfigEntryAuthFailed`, triggering HA's
+reauth flow rather than leaving the entity silently broken. Reauth doubles as the mechanism for
+changing which lists are exposed: since the list set is re-discovered from whatever the
+newly-entered token grants, minting a differently-scoped PAT and reauthenticating with it updates
+the entry's entities to match — no separate "reconfigure lists" flow needed.
 
 ## Sequencing
 

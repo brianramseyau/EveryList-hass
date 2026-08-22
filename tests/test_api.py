@@ -12,11 +12,12 @@ from custom_components.everylist.api import (
     EveryListConnectionError,
 )
 
-from .conftest import BASE_URL, LIST_ID, TOKEN, item_json, list_json
+from .conftest import BASE_URL, LIST_ID, TOKEN, item_json, list_json, token_me_json
 from .fake_aiohttp import FakeSession
 
 ITEMS_URL = f"{BASE_URL}/api/v1/lists/{LIST_ID}/items"
 LIST_URL = f"{BASE_URL}/api/v1/lists/{LIST_ID}"
+TOKEN_ME_URL = f"{BASE_URL}/api/v1/tokens/me"
 
 
 @pytest.fixture
@@ -62,6 +63,22 @@ async def test_get_items_excludes_checked(client: EveryListClient, session: Fake
 
     assert len(items) == 1
     assert session.calls[0]["params"] == {"includeChecked": "false"}
+
+
+async def test_get_my_grants(client: EveryListClient, session: FakeSession) -> None:
+    session.add_response(
+        "GET",
+        TOKEN_ME_URL,
+        json_body={
+            "data": token_me_json(
+                grants=[{"listId": 3, "role": "editor"}, {"listId": 5, "role": "viewer"}]
+            )
+        },
+    )
+
+    grants = await client.get_my_grants()
+
+    assert [(g.list_id, g.role) for g in grants] == [(3, "editor"), (5, "viewer")]
 
 
 async def test_get_recent_names(client: EveryListClient, session: FakeSession) -> None:

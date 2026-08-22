@@ -64,16 +64,17 @@ Settings → Devices & Services → Add Integration → **EveryList**. You'll be
 |---|---|
 | Base URL | Your EveryList instance's base URL, e.g. `https://everylist.example.com` |
 | Personal Access Token | The `elt_...` token from `Settings → Access Tokens` |
-| List IDs | The numeric ID(s) the token above was scoped to when you minted it, comma-separated (e.g. `3` or `3, 5`) — visible in the EveryList app's URL when viewing a list, `/lists/<id>` |
 
-The integration validates the token and every list ID with a real API call
-(`GET /lists/:id`) before creating the entry, so a typo'd ID or an unscoped token is caught
-immediately rather than surfacing as a silently-broken entity later.
+That's it — the integration calls `GET /tokens/me` to discover exactly which lists the token
+was scoped to (and at what role) when you minted it, so you never re-enter list IDs by hand. A
+list you were granted `viewer` on still shows up as a `todo.*` entity, just read-only (no
+add/complete/delete) — the API would reject a write from that token anyway, so this integration
+doesn't offer controls that would only fail.
 
-To change which lists are exposed later without re-entering the token, use the entry's
-**Reconfigure** option. If the token is revoked or expires, Home Assistant will prompt you to
-reauthenticate (mint a fresh token scoped to the same lists) rather than leaving the entity
-silently stuck.
+If the token is revoked or expires, Home Assistant prompts you to reauthenticate. That's also
+how you change which lists this entry exposes later: mint a new token scoped to whatever set of
+lists you want and reauthenticate with it — the entry's list set is re-discovered fresh from the
+new token rather than staying pinned to the old one.
 
 ## Limitations
 
@@ -81,13 +82,13 @@ silently stuck.
   EveryList's realtime channel — a change made outside Home Assistant can take up to 30 seconds
   to appear here. Voice Assist's own writes still apply immediately (they don't wait on the
   poll). Live push is a tracked follow-up; see `foundational/PLAN.md`.
-- **You supply the list IDs.** EveryList's API doesn't yet expose "which lists is my token
-  scoped to" as its own endpoint, so the config flow asks for the same IDs you picked when
-  minting the token, rather than discovering them automatically.
 - A PAT is capped at `editor` — this integration can never do anything an owner-only action
   (like deleting the list itself) would require, by design.
 
 ## Development
+
+Requires Python 3.14+ (`pytest-homeassistant-custom-component` pulls in a `homeassistant`
+version that does) — CI runs on 3.14 for the same reason.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate

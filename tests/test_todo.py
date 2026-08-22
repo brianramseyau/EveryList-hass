@@ -6,7 +6,7 @@ from collections.abc import Callable
 from unittest.mock import AsyncMock
 
 import pytest
-from homeassistant.components.todo import TodoItem, TodoItemStatus
+from homeassistant.components.todo import TodoItem, TodoItemStatus, TodoListEntityFeature
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -39,12 +39,16 @@ async def make_entity(hass: HomeAssistant):
     """
     coordinators: list[EveryListCoordinator] = []
 
-    def _factory(client: AsyncMock, items: list[EveryListItem]) -> EveryListTodoListEntity:
+    def _factory(
+        client: AsyncMock, items: list[EveryListItem], *, role: str = "editor"
+    ) -> EveryListTodoListEntity:
         coordinator = EveryListCoordinator(hass, client, [LIST_ID])
         coordinator.data = {LIST_ID: items}
         coordinators.append(coordinator)
         entry = MockConfigEntry(domain="everylist", entry_id="entry1")
-        return EveryListTodoListEntity(coordinator, entry, list_id=LIST_ID, name=LIST_NAME)
+        return EveryListTodoListEntity(
+            coordinator, entry, list_id=LIST_ID, name=LIST_NAME, role=role
+        )
 
     yield _factory
 
@@ -52,7 +56,7 @@ async def make_entity(hass: HomeAssistant):
         await coordinator.async_shutdown()
 
 
-EntityFactory = Callable[[AsyncMock, list[EveryListItem]], EveryListTodoListEntity]
+EntityFactory = Callable[..., EveryListTodoListEntity]
 
 
 async def test_todo_items_reflects_coordinator_data(make_entity: EntityFactory) -> None:
@@ -70,6 +74,20 @@ async def test_unique_id_scopes_to_entry_and_list(make_entity: EntityFactory) ->
     entity = make_entity(AsyncMock(), [])
     assert entity.unique_id == "entry1-3"
     assert entity.name == LIST_NAME
+
+
+async def test_editor_role_gets_write_features(make_entity: EntityFactory) -> None:
+    entity = make_entity(AsyncMock(), [], role="editor")
+    assert entity.supported_features == (
+        TodoListEntityFeature.CREATE_TODO_ITEM
+        | TodoListEntityFeature.UPDATE_TODO_ITEM
+        | TodoListEntityFeature.DELETE_TODO_ITEM
+    )
+
+
+async def test_viewer_role_gets_no_write_features(make_entity: EntityFactory) -> None:
+    entity = make_entity(AsyncMock(), [], role="viewer")
+    assert entity.supported_features == TodoListEntityFeature(0)
 
 
 async def test_create_todo_item_exact_name(make_entity: EntityFactory) -> None:
@@ -207,7 +225,12 @@ async def test_async_setup_entry_creates_one_entity_per_list(hass: HomeAssistant
     coordinator.data = {3: [], 5: []}
     entry = MockConfigEntry(
         domain="everylist",
-        data={CONF_LIST_IDS: {"3": "Groceries", "5": "Hardware"}},
+        data={
+            CONF_LIST_IDS: {
+                "3": {"name": "Groceries", "role": "editor"},
+                "5": {"name": "Hardware", "role": "viewer"},
+            }
+        },
     )
     entry.runtime_data = EveryListRuntimeData(client=client, coordinator=coordinator)
 
@@ -215,7 +238,10 @@ async def test_async_setup_entry_creates_one_entity_per_list(hass: HomeAssistant
     await async_setup_entry(hass, entry, lambda entities: added.extend(entities))
     await coordinator.async_shutdown()
 
-    assert {entity.name for entity in added} == {"Groceries", "Hardware"}
+    by_name = {entity.name: entity for entity in added}
+    assert set(by_name) == {"Groceries", "Hardware"}
+    assert by_name["Groceries"].supported_features != TodoListEntityFeature(0)
+    assert by_name["Hardware"].supported_features == TodoListEntityFeature(0)
 
 
 def test_to_todo_item_carries_notes_as_description() -> None:
