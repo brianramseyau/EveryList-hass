@@ -76,6 +76,10 @@ exist.
 - `PATCH /lists/:listId/items/:itemId` (`{checked}` or other fields, `expectedVersion`) →
   `async_update_todo_item`.
 - `DELETE /lists/:listId/items/:itemId` → `async_delete_todo_item`.
+- `PATCH /lists/:listId/items/:itemId/move` (`{previousItemId}`) → `async_move_todo_item`.
+  A single-item positional move that matches HA's `previous_uid` shape exactly
+  (`previousItemId: null` moves to the front); the server uses fractional sort-order values,
+  so a move only bumps the moved row's `version`, not the whole list's.
 - All mutating endpoints honor the API's optimistic-lock pattern: every item carries a
   `version`; a write sent with a stale `expectedVersion` 409s with the current row instead of
   applying. On a 409 the client refetches and retries once rather than surfacing a raw error to

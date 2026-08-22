@@ -48,7 +48,7 @@ EveryList. **✓** implemented · **✗** not yet implemented · **N/A** not rel
 | Rename item — `todo.update_item` (`UPDATE_TODO_ITEM`) | ✓ | |
 | Delete item — `todo.remove_item` (`DELETE_TODO_ITEM`) | ✓ | |
 | Remove completed items — `todo.remove_completed_items` (`DELETE_TODO_ITEM`) | ✓ | |
-| Reorder item — `MOVE_TODO_ITEM` | ✓ | Applied per-item; see the bulk-reorder note in [Limitations](#limitations). |
+| Reorder item — `MOVE_TODO_ITEM` | ✓ | Single-item move via the `move` endpoint. |
 | Description / notes — `SET_DESCRIPTION_ON_ITEM` | ✓ | Round-trips as the to-do item's description. |
 | Due date — `SET_DUE_DATE_ON_ITEM` | N/A | EveryList lists don't carry due dates. |
 | Due date & time — `SET_DUE_DATETIME_ON_ITEM` | N/A | EveryList lists don't carry due datetimes. |
@@ -108,10 +108,6 @@ new token rather than staying pinned to the old one.
   poll). Live push is a tracked follow-up; see `foundational/PLAN.md`.
 - A PAT is capped at `editor` — this integration can never do anything an owner-only action
   (like deleting the list itself) would require, by design.
-- **Bulk re-ordering is not yet available.** EveryList currently exposes only a per-item
-  `sortOrder` on its item update — there is no bulk-reorder endpoint. `MOVE_TODO_ITEM` works
-  today by recomputing the whole list's order and patching each changed item individually. A
-  bulk-reorder endpoint is planned for EveryList and will be adopted here once it lands.
 
 ## Development
 

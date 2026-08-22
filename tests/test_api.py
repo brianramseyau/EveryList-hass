@@ -126,6 +126,50 @@ async def test_update_item_conflict_raises_with_current_item(
     assert exc_info.value.item.version == 5
 
 
+async def test_move_item_success(client: EveryListClient, session: FakeSession) -> None:
+    session.add_response(
+        "PATCH",
+        f"{ITEMS_URL}/1/move",
+        json_body={"data": item_json(item_id=1, sort_order=1, version=2)},
+    )
+
+    item = await client.move_item(LIST_ID, 1, previous_item_id=2, expected_version=1)
+
+    assert item.sort_order == 1
+    assert item.version == 2
+    assert session.calls[0]["json"] == {"previousItemId": 2, "expectedVersion": 1}
+
+
+async def test_move_item_to_front_omits_expected_version_when_none(
+    client: EveryListClient, session: FakeSession
+) -> None:
+    session.add_response(
+        "PATCH",
+        f"{ITEMS_URL}/1/move",
+        json_body={"data": item_json(item_id=1, sort_order=0)},
+    )
+
+    await client.move_item(LIST_ID, 1, previous_item_id=None)
+
+    assert session.calls[0]["json"] == {"previousItemId": None}
+
+
+async def test_move_item_conflict_raises_with_current_item(
+    client: EveryListClient, session: FakeSession
+) -> None:
+    session.add_response(
+        "PATCH",
+        f"{ITEMS_URL}/1/move",
+        status=409,
+        json_body={"data": item_json(item_id=1, version=5), "conflict": True},
+    )
+
+    with pytest.raises(EveryListConflictError) as exc_info:
+        await client.move_item(LIST_ID, 1, previous_item_id=2, expected_version=1)
+
+    assert exc_info.value.item.version == 5
+
+
 async def test_delete_item_success(client: EveryListClient, session: FakeSession) -> None:
     session.add_response("DELETE", f"{ITEMS_URL}/1", status=204)
 
