@@ -139,33 +139,34 @@ class EveryListTodoListEntity(CoordinatorEntity[EveryListCoordinator], TodoListE
     async def async_move_todo_item(self, uid: str, previous_uid: str | None = None) -> None:
         """Reorder ``uid`` to sit right after ``previous_uid`` (or first, if ``None``).
 
-        EveryList has no bulk-reorder endpoint for items — only a per-item
-        ``sortOrder`` on the same ``PATCH`` used for renames/checks — so a
-        move is applied by recomputing the whole list's 0..N-1 order and
-        writing back only the items whose position actually changed.
+        EveryList exposes a single-item move endpoint whose ``previousItemId``
+        maps directly onto HA's ``previous_uid``, so a move is a single API
+        call rather than a recompute-and-patch of the whole list.
         """
-        items = list(self.coordinator.data.get(self._list_id, []))
-        ordered_ids = [item.id for item in items]
-        moved_id = int(uid)
-        if moved_id not in ordered_ids:
-            raise ValueError(f"No item {uid} on list {self._list_id}")
-        ordered_ids.remove(moved_id)
-
-        if previous_uid is None:
-            new_index = 0
-        else:
-            prev_id = int(previous_uid)
-            if prev_id not in ordered_ids:
-                raise ValueError(f"No item {previous_uid} on list {self._list_id}")
-            new_index = ordered_ids.index(prev_id) + 1
-        ordered_ids.insert(new_index, moved_id)
-
-        by_id = {item.id: item for item in items}
-        for sort_order, item_id in enumerate(ordered_ids):
-            item = by_id[item_id]
-            if item.sort_order != sort_order:
-                await self._update_with_retry(item, {"sortOrder": sort_order})
+        item = self._find_item(uid)
+        previous_item_id: int | None = None
+        if previous_uid is not None:
+            previous_item_id = int(previous_uid)
+            self._find_item(previous_uid)
+        await self._move_with_retry(item, previous_item_id)
         await self.coordinator.async_request_refresh()
+
+    async def _move_with_retry(self, item: EveryListItem, previous_item_id: int | None) -> None:
+        """Apply a move, refetching and retrying once on a stale-version conflict."""
+        try:
+            await self.coordinator.client.move_item(
+                self._list_id,
+                item.id,
+                previous_item_id=previous_item_id,
+                expected_version=item.version,
+            )
+        except EveryListConflictError as err:
+            await self.coordinator.client.move_item(
+                self._list_id,
+                item.id,
+                previous_item_id=previous_item_id,
+                expected_version=err.item.version,
+            )
 
     async def async_delete_todo_items(self, uids: list[str]) -> None:
         for uid in uids:

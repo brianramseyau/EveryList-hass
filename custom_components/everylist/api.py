@@ -162,6 +162,29 @@ class EveryListClient:
             raise EveryListConflictError(item)
         return item
 
+    async def move_item(
+        self,
+        list_id: int,
+        item_id: int,
+        *,
+        previous_item_id: int | None,
+        expected_version: int | None = None,
+    ) -> EveryListItem:
+        """Move an item to just after ``previous_item_id`` (or the front, if ``None``).
+
+        Matches HA's ``previous_uid`` move shape directly: ``PATCH .../items/:itemId/move``
+        with ``previousItemId: null`` meaning "move to the top". Raises
+        :class:`EveryListConflictError` (carrying the server's current item) on a 409.
+        """
+        payload: dict[str, Any] = {"previousItemId": previous_item_id}
+        if expected_version is not None:
+            payload["expectedVersion"] = expected_version
+        body = await self._call("PATCH", f"/lists/{list_id}/items/{item_id}/move", json=payload)
+        item = EveryListItem.from_json(body["data"])
+        if body.get("conflict"):
+            raise EveryListConflictError(item)
+        return item
+
     async def delete_item(self, list_id: int, item_id: int, *, expected_version: int) -> None:
         """Raises :class:`EveryListConflictError` (carrying the server's current item) on a 409."""
         body = await self._call(
