@@ -87,6 +87,9 @@ new token rather than staying pinned to the old one.
 
 ## Development
 
+Requires Python 3.14+ (`pytest-homeassistant-custom-component` pulls in a `homeassistant`
+version that does) — CI runs on 3.14 for the same reason.
+
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements_test.txt
