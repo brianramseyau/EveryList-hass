@@ -75,10 +75,11 @@ class EveryListList:
 
     id: int
     name: str
+    icon: str | None = None
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> EveryListList:
-        return cls(id=data["id"], name=data["name"])
+        return cls(id=data["id"], name=data["name"], icon=data.get("icon"))
 
 
 @dataclass(slots=True, kw_only=True)

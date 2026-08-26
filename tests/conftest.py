@@ -56,13 +56,13 @@ def item_json(
     }
 
 
-def list_json(*, list_id: int = LIST_ID, name: str = LIST_NAME) -> dict:
+def list_json(*, list_id: int = LIST_ID, name: str = LIST_NAME, icon: str | None = None) -> dict:
     """Build a list payload shaped like the real API's ListTransformer output."""
     return {
         "id": list_id,
         "name": name,
         "color": None,
-        "icon": None,
+        "icon": icon,
         "ownerId": 1,
         "folderId": None,
         "archived": False,
@@ -100,6 +100,6 @@ def mock_config_entry() -> MockConfigEntry:
         data={
             "url": BASE_URL,
             "access_token": TOKEN,
-            CONF_LIST_IDS: {str(LIST_ID): {"name": LIST_NAME, "role": "editor"}},
+            CONF_LIST_IDS: {str(LIST_ID): {"name": LIST_NAME, "role": "editor", "icon": None}},
         },
     )

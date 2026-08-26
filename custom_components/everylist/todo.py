@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+import re
 
 from homeassistant.components.todo import (
     TodoItem,
@@ -17,13 +18,26 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import EveryListConfigEntry
 from .api import EveryListConflictError, EveryListItem
-from .const import CONF_LIST_IDS
 from .coordinator import EveryListCoordinator
 
 # A close-but-not-exact transcription ("miilk") is accepted as a match to an
 # existing recent name; below this, "milk" vs "milkshake" would also match,
 # which is too loose for a mishear-correction heuristic.
 _FUZZY_MATCH_CUTOFF = 0.8
+
+
+def _to_mdi_icon(icon: str | None) -> str | None:
+    """Map EveryList's camelCase MDI name (``fruitCherries``) to HA's ``mdi:fruit-cherries``.
+
+    EveryList stores the export name minus its ``mdi`` prefix, camelCase (see
+    ``apps/web/src/lib/icons/mdi.ts``); HA wants the kebab-case name with the
+    prefix. ``None`` (or empty) is left as ``None`` so HA falls back to the
+    todo-domain default icon.
+    """
+    if not icon:
+        return None
+    kebab = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "-", icon).lower()
+    return f"mdi:{kebab}"
 
 
 _WRITE_FEATURES = (
@@ -42,11 +56,16 @@ async def async_setup_entry(
 ) -> None:
     """Set up one TodoListEntity per list the config entry covers."""
     coordinator = entry.runtime_data.coordinator
-    lists: dict[str, dict[str, str]] = entry.data[CONF_LIST_IDS]
+    lists: dict[str, dict[str, str | None]] = entry.runtime_data.lists
 
     async_add_entities(
         EveryListTodoListEntity(
-            coordinator, entry, list_id=int(list_id), name=info["name"], role=info["role"]
+            coordinator,
+            entry,
+            list_id=int(list_id),
+            name=info["name"],
+            role=info["role"],
+            icon=_to_mdi_icon(info.get("icon")),
         )
         for list_id, info in lists.items()
     )
@@ -70,10 +89,12 @@ class EveryListTodoListEntity(CoordinatorEntity[EveryListCoordinator], TodoListE
         list_id: int,
         name: str,
         role: str,
+        icon: str | None = None,
     ) -> None:
         super().__init__(coordinator)
         self._list_id = list_id
         self._attr_name = name
+        self._attr_icon = icon
         self._attr_unique_id = f"{entry.entry_id}-{list_id}"
         self._attr_supported_features = (
             _WRITE_FEATURES if role == "editor" else TodoListEntityFeature(0)

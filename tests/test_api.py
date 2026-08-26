@@ -40,6 +40,14 @@ async def test_get_list(client: EveryListClient, session: FakeSession) -> None:
     assert session.calls[0]["headers"]["Authorization"] == f"Bearer {TOKEN}"
 
 
+async def test_get_list_parses_icon(client: EveryListClient, session: FakeSession) -> None:
+    session.add_response("GET", LIST_URL, json_body={"data": list_json(icon="cartOutline")})
+
+    result = await client.get_list(LIST_ID)
+
+    assert result.icon == "cartOutline"
+
+
 async def test_get_items_includes_checked_by_default(
     client: EveryListClient, session: FakeSession
 ) -> None:

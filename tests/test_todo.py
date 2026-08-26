@@ -12,10 +12,10 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.everylist import EveryListRuntimeData
 from custom_components.everylist.api import EveryListConflictError, EveryListItem
-from custom_components.everylist.const import CONF_LIST_IDS
 from custom_components.everylist.coordinator import EveryListCoordinator
 from custom_components.everylist.todo import (
     EveryListTodoListEntity,
+    _to_mdi_icon,
     _to_todo_item,
     async_setup_entry,
 )
@@ -40,14 +40,18 @@ async def make_entity(hass: HomeAssistant):
     coordinators: list[EveryListCoordinator] = []
 
     def _factory(
-        client: AsyncMock, items: list[EveryListItem], *, role: str = "editor"
+        client: AsyncMock,
+        items: list[EveryListItem],
+        *,
+        role: str = "editor",
+        icon: str | None = None,
     ) -> EveryListTodoListEntity:
         coordinator = EveryListCoordinator(hass, client, [LIST_ID])
         coordinator.data = {LIST_ID: items}
         coordinators.append(coordinator)
         entry = MockConfigEntry(domain="everylist", entry_id="entry1")
         return EveryListTodoListEntity(
-            coordinator, entry, list_id=LIST_ID, name=LIST_NAME, role=role
+            coordinator, entry, list_id=LIST_ID, name=LIST_NAME, role=role, icon=icon
         )
 
     yield _factory
@@ -341,16 +345,15 @@ async def test_async_setup_entry_creates_one_entity_per_list(hass: HomeAssistant
     client = AsyncMock()
     coordinator = EveryListCoordinator(hass, client, [3, 5])
     coordinator.data = {3: [], 5: []}
-    entry = MockConfigEntry(
-        domain="everylist",
-        data={
-            CONF_LIST_IDS: {
-                "3": {"name": "Groceries", "role": "editor"},
-                "5": {"name": "Hardware", "role": "viewer"},
-            }
+    entry = MockConfigEntry(domain="everylist")
+    entry.runtime_data = EveryListRuntimeData(
+        client=client,
+        coordinator=coordinator,
+        lists={
+            "3": {"name": "Groceries", "role": "editor", "icon": "cartOutline"},
+            "5": {"name": "Hardware", "role": "viewer", "icon": None},
         },
     )
-    entry.runtime_data = EveryListRuntimeData(client=client, coordinator=coordinator)
 
     added: list[EveryListTodoListEntity] = []
     await async_setup_entry(hass, entry, lambda entities: added.extend(entities))
@@ -360,9 +363,25 @@ async def test_async_setup_entry_creates_one_entity_per_list(hass: HomeAssistant
     assert set(by_name) == {"Groceries", "Hardware"}
     assert by_name["Groceries"].supported_features != TodoListEntityFeature(0)
     assert by_name["Hardware"].supported_features == TodoListEntityFeature(0)
+    assert by_name["Groceries"].icon == "mdi:cart-outline"
+    assert by_name["Hardware"].icon is None
 
 
 def test_to_todo_item_carries_notes_as_description() -> None:
     item = EveryListItem.from_json(item_json(notes="brand: oat milk"))
     todo_item = _to_todo_item(item)
     assert todo_item.description == "brand: oat milk"
+
+
+def test_to_mdi_icon_maps_camel_case_to_kebab_case() -> None:
+    assert _to_mdi_icon("fruitCherries") == "mdi:fruit-cherries"
+    assert _to_mdi_icon("cartOutline") == "mdi:cart-outline"
+
+
+def test_to_mdi_icon_preserves_single_word() -> None:
+    assert _to_mdi_icon("cart") == "mdi:cart"
+
+
+def test_to_mdi_icon_none_or_empty_returns_none() -> None:
+    assert _to_mdi_icon(None) is None
+    assert _to_mdi_icon("") is None

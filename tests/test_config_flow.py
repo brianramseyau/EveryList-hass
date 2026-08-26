@@ -54,7 +54,7 @@ async def test_user_flow_success(hass: HomeAssistant, session: FakeSession) -> N
     assert result["data"] == {
         "url": BASE_URL,
         "access_token": TOKEN,
-        CONF_LIST_IDS: {str(LIST_ID): {"name": LIST_NAME, "role": "editor"}},
+        CONF_LIST_IDS: {str(LIST_ID): {"name": LIST_NAME, "role": "editor", "icon": None}},
     }
 
 
@@ -84,8 +84,21 @@ async def test_user_flow_multiple_lists_with_mixed_roles(
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_LIST_IDS] == {
-        str(LIST_ID): {"name": "Groceries", "role": "editor"},
-        "5": {"name": "Hardware", "role": "viewer"},
+        str(LIST_ID): {"name": "Groceries", "role": "editor", "icon": None},
+        "5": {"name": "Hardware", "role": "viewer", "icon": None},
+    }
+
+
+async def test_user_flow_carries_list_icon(hass: HomeAssistant, session: FakeSession) -> None:
+    result = await _start_user_flow(hass)
+
+    session.add_response("GET", TOKEN_ME_URL, json_body={"data": token_me_json()})
+    session.add_response("GET", LIST_URL, json_body={"data": list_json(icon="cartOutline")})
+    result = await _configure(hass, result["flow_id"])
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_LIST_IDS] == {
+        str(LIST_ID): {"name": LIST_NAME, "role": "editor", "icon": "cartOutline"}
     }
 
 
@@ -181,7 +194,9 @@ async def test_reauth_flow_success_updates_token_and_rediscovers_lists(
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
     assert mock_config_entry.data["access_token"] == "elt_new_token"
-    assert mock_config_entry.data[CONF_LIST_IDS] == {"5": {"name": "Hardware", "role": "viewer"}}
+    assert mock_config_entry.data[CONF_LIST_IDS] == {
+        "5": {"name": "Hardware", "role": "viewer", "icon": None}
+    }
 
 
 async def test_reauth_flow_error_keeps_form_open(
