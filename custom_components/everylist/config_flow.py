@@ -25,7 +25,7 @@ _USER_SCHEMA = vol.Schema({vol.Required(CONF_URL): str, vol.Required(CONF_ACCESS
 _TOKEN_SCHEMA = vol.Schema({vol.Required(CONF_ACCESS_TOKEN): str})
 
 
-def _entry_title(lists: dict[str, dict[str, str]]) -> str:
+def _entry_title(lists: dict[str, dict[str, str | None]]) -> str:
     return "EveryList (" + ", ".join(entry["name"] for entry in lists.values()) + ")"
 
 
@@ -36,16 +36,20 @@ class EveryListConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def _discover_lists(
         self, base_url: str, token: str
-    ) -> tuple[str | None, dict[str, dict[str, str]]]:
+    ) -> tuple[str | None, dict[str, dict[str, str | None]]]:
         """Returns ``(error_code, lists)`` — ``error_code`` is ``None`` on success."""
         session = async_get_clientsession(self.hass)
         client = EveryListClient(session, base_url, token)
-        lists: dict[str, dict[str, str]] = {}
+        lists: dict[str, dict[str, str | None]] = {}
         try:
             grants = await client.get_my_grants()
             for grant in grants:
                 list_info = await client.get_list(grant.list_id)
-                lists[str(grant.list_id)] = {"name": list_info.name, "role": grant.role}
+                lists[str(grant.list_id)] = {
+                    "name": list_info.name,
+                    "role": grant.role,
+                    "icon": list_info.icon,
+                }
         except EveryListConnectionError:
             return "cannot_connect", {}
         except EveryListAuthError:

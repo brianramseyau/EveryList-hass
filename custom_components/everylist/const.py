@@ -7,8 +7,9 @@ from typing import Final
 DOMAIN: Final = "everylist"
 
 CONF_LIST_IDS: Final = "list_ids"
-"""Config-entry data key: ``{"<list id>": {"name": ..., "role": "editor" | "viewer"}, ...}``,
-one entry per list the PAT is scoped to, discovered via ``GET /tokens/me`` at setup/reauth time.
+"""Config-entry data key: ``{"<list id>": {"name": ..., "role": "editor" | "viewer",
+"icon": ...}, ...}``, one entry per list the PAT is scoped to, discovered via
+``GET /tokens/me`` at setup/reauth time.
 """
 
 API_PREFIX: Final = "/api/v1"
